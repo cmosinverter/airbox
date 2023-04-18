@@ -67,6 +67,7 @@ def storeData():
     sgx_data = pd.concat([getData(path, 'SGX') for path in paths if getData(path, 'SGX') is not None])
     print(f'Number of Samples: {len(sgx_data)}')
     sgx_data = sgx_data.groupby('measure_time').mean()
+    sgx_data.drop(sgx_data.loc[(sgx_data.index >= '2023-03-30 14:00:00') & (sgx_data.index <= '2023-04-12 10:00:00')].index, inplace=True)
     sgx_data.to_csv('data/sgx.csv')
 
 def readData():

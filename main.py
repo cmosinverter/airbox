@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # print(train_data.shape, val_data.shape, test_data.shape)
 
     # create sequences
-    win_len = 50 # Specify the window length
+    win_len = 12 # Specify the window length
     X_train, y_train = create_sequences(train_data, win_len)
     X_val, y_val = create_sequences(val_data, win_len)
     X_test, y_test = create_sequences(test_data, win_len)
