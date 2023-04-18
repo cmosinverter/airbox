@@ -8,8 +8,8 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.linear_model import LinearRegression
 import torch
 import torch.nn as nn
-from utils import score, visualize_result, storeData, readData, create_sequences
-from model import CNN_GRU
+from utils import score, visualize_result, storeData, readData, create_sequences, setSeed
+from model import GRU, CNN_GRU, Simple_CNN_GRU
 import argparse
 
 
@@ -23,8 +23,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # set random seed for reproducibility
-    torch.manual_seed(0)
-    np.random.seed(0)
+    setSeed(0)
 
     # store the data to folder
     if args.store_data == True:
@@ -42,7 +41,7 @@ if __name__ == '__main__':
 
     # Data Division
     dates = sgx_data.loc[sgx_data.index.isin(ref_data.index), :].index
-    train, val, test = np.split(dates, [int(.8*len(dates)), int(.9*len(dates))])
+    train, val, test = np.split(dates, [int(.8*len(dates)), int(.9*len(dates))]) # 80% train, 10% validation, 10% test
     print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
@@ -59,21 +58,22 @@ if __name__ == '__main__':
     # print(train_data.shape, val_data.shape, test_data.shape)
 
     # create sequences
-    win_len = 12 # Specify the window length
+    win_len = 60 # Specify the window length
     X_train, y_train = create_sequences(train_data, win_len)
     X_val, y_val = create_sequences(val_data, win_len)
     X_test, y_test = create_sequences(test_data, win_len)
-
+    # print(X_train.shape, y_train.shape, X_val.shape, y_val.shape, X_test.shape, y_test.shape)
+    
     #  checking device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using {device} device")
 
     # model initialization
-    kernel_width = 2
+    kernel_width = 12
     input_features = X_train.shape[2]
     hidden_size = 32
-    model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
-
+    # model = Simple_CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
+    model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
     # loss & optimizer
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
@@ -82,7 +82,7 @@ if __name__ == '__main__':
     #  training
     if args.train == True:
         num_epochs = 100
-        batch_size = 64
+        batch_size = 32
         train_log = []
         val_log = []
         
@@ -133,14 +133,17 @@ if __name__ == '__main__':
         model.load_state_dict(torch.load('model/cnn_gru.pth'))
         model.eval()
         y_train_cal = model(X_train.to(device))
+        print('Train')
         score(y_train, y_train_cal.cpu().detach().numpy())
         visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
 
         y_val_cal = model(X_val.to(device))
+        print('Val')
         score(y_val, y_val_cal.cpu().detach().numpy())
         visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
 
         y_test_cal = model(X_test.to(device))
+        print('Test')
         score(y_test, y_test_cal.cpu().detach().numpy())
         visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
 

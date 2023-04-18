@@ -31,6 +31,10 @@ unit_table = {'O3': 'ppb',
               'NO2': 'ppb',
               'SO2': 'ppb'}
 
+def setSeed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    return
 
 def getData(file_path, device):
     try:
@@ -80,7 +84,7 @@ def readData():
 
 def score(y_pred, y_true):
     print('***R2 Score: {:.2f}'.format(r2_score(y_pred, y_true)))
-    print('***MSE: {:.4f}'.format(mean_squared_error(y_pred, y_true)))
+    print('***RMSE: {:.4f}'.format(math.sqrt(mean_squared_error(y_pred, y_true))))
 
 def visualize_result(y_true, y_pred, dates, title):
     x = range(len(dates))

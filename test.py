@@ -1,9 +1,11 @@
 import torch.nn as nn
 import torch
 import numpy as np
+from model import CNN_GRU
 
 data = torch.randn(1468, 4)
 data = torch.transpose(data, 0, 1)
+
 
 def create_sequences(data, window_len):
     xs = []
@@ -18,19 +20,18 @@ def create_sequences(data, window_len):
     return torch.unsqueeze(torch.tensor(np.stack(xs), dtype=torch.float32), dim=1), torch.tensor(np.stack(ys), dtype=torch.float32)
 
 
-win_len = 6
+
+input_features = data.shape[0] - 1
+kernel_width = 12
+win_len = 60
+batch_size = 32
+hidden_size = 32
+
+model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size)
 X, y = create_sequences(data, win_len)
+X_batch, y_batch = X[:batch_size], y[:batch_size]
 
-print(X.shape, y.shape)
+outputs = model(X_batch)
+print(outputs.shape, y_batch.shape)
 
-conv1 = nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3))
-gru1 = nn.GRU(input_size=32, hidden_size=64, batch_first=True)
-fc1 = nn.Linear(64, 1)
-out = conv1(X)
-print(out.shape)
-out = out.permute(0, 3, 1, 2).reshape(out.size(0), out.size(3), -1)
-print(out.shape)
-out, _ = gru1(out)
-print(out.shape)
-out = fc1(out[:, -1, :])
-print(out.shape)
+
