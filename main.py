@@ -73,7 +73,8 @@ if __name__ == '__main__':
     input_features = X_train.shape[2]
     hidden_size = 32
     # model = Simple_CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
-    model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
+    model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
+    # model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
     # loss & optimizer
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
@@ -81,8 +82,8 @@ if __name__ == '__main__':
 
     #  training
     if args.train == True:
-        num_epochs = 100
-        batch_size = 32
+        num_epochs = 80
+        batch_size = 16
         train_log = []
         val_log = []
         

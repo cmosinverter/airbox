@@ -24,7 +24,7 @@ def create_sequences(data, window_len):
 input_features = data.shape[0] - 1
 kernel_width = 12
 win_len = 60
-batch_size = 32
+batch_size = 1
 hidden_size = 32
 
 model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size)
@@ -32,6 +32,6 @@ X, y = create_sequences(data, win_len)
 X_batch, y_batch = X[:batch_size], y[:batch_size]
 
 outputs = model(X_batch)
-print(outputs.shape, y_batch.shape)
+
 
 

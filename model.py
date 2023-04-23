@@ -48,12 +48,17 @@ class CNN_GRU(nn.Module):
 
         
     def forward(self, x):
+        # print("The shape of input: ", x.shape)
         x_t = x[:, :, 0, self.kernel_width - 1:].unsqueeze(1)
+        # print("The shape of x_T: ", x_t.shape)
         out = self.conv1(x)
+        # print("The shape of encoded feature: ", out.shape)
         out = torch.cat((out, x_t), dim=1)
+        # print("The shape of all feature: ", out.shape)
         out = out.permute(0, 3, 1, 2).reshape(out.size(0), out.size(3), -1)
         out, _ = self.gru1(out)
+        # print("The shape of GRU output: ", out.shape)
         out = self.fc1(out[:, -1, :])
-
+        # print("The shape of output: ", out.shape)
         return out
 

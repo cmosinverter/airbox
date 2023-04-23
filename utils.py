@@ -86,14 +86,17 @@ def score(y_pred, y_true):
     print('***R2 Score: {:.2f}'.format(r2_score(y_pred, y_true)))
     print('***RMSE: {:.4f}'.format(math.sqrt(mean_squared_error(y_pred, y_true))))
 
-def visualize_result(y_true, y_pred, dates, title):
+def visualize_result(y_true, y_pred, dates, title = ""):
     x = range(len(dates))
     fig, ax = plt.subplots(1, 2, figsize = (16, 6))
-    fig.suptitle(title)
+    if title != "":
+        fig.suptitle(title)
+    else:
+        fig.suptitle('Result')
     ax[0].plot(x, y_true, label = 'Reference')
     ax[0].plot(x, y_pred, label = 'Calibrated')
-    ax[0].set_xticks(np.arange(0, len(dates), 50))
-    ax[0].set_xticklabels(labels = dates[::50].date, rotation = 20)
+    ax[0].set_xticks(np.arange(0, len(dates), len(dates)//8))
+    ax[0].set_xticklabels(labels = dates[::len(dates)//8].date, rotation = 20)
     ax[0].legend()
 
     ax[1].scatter(y_pred, y_true)
@@ -102,7 +105,8 @@ def visualize_result(y_true, y_pred, dates, title):
     ax[1].set_xlabel('Predict')
     ax[1].set_ylabel('Actual')
     plt.tight_layout()
-    plt.savefig(f'fig/{title}', dpi=300, bbox_inches='tight')
+    if title != "":
+        plt.savefig(f'fig/{title}', dpi=300, bbox_inches='tight')
     plt.show()
 
 def create_sequences(data, window_len):
