@@ -58,7 +58,7 @@ if __name__ == '__main__':
     # print(train_data.shape, val_data.shape, test_data.shape)
 
     # create sequences
-    win_len = 60 # Specify the window length
+    win_len = 24 # Specify the window length
     X_train, y_train = create_sequences(train_data, win_len)
     X_val, y_val = create_sequences(val_data, win_len)
     X_test, y_test = create_sequences(test_data, win_len)
@@ -69,9 +69,9 @@ if __name__ == '__main__':
     print(f"Using {device} device")
 
     # model initialization
-    kernel_width = 12
+    kernel_width = 4
     input_features = X_train.shape[2]
-    hidden_size = 32
+    hidden_size = 64
     # model = Simple_CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
     model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
     # model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
@@ -82,7 +82,7 @@ if __name__ == '__main__':
 
     #  training
     if args.train == True:
-        num_epochs = 80
+        num_epochs = 100
         batch_size = 16
         train_log = []
         val_log = []

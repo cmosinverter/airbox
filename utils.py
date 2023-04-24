@@ -100,7 +100,7 @@ def visualize_result(y_true, y_pred, dates, title = ""):
     ax[0].legend()
 
     ax[1].scatter(y_pred, y_true)
-    ax[1].plot([min(y_pred), max(y_pred)], [min(y_true), max(y_true)], 'g--', linewidth=2, markersize=12, label = 'ideal')
+    ax[1].plot([0, 2], [0, 2], 'g--', linewidth=2, markersize=12, label = 'ideal')
     ax[1].legend()
     ax[1].set_xlabel('Predict')
     ax[1].set_ylabel('Actual')
