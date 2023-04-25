@@ -34,14 +34,14 @@ if __name__ == '__main__':
 
     # target & additional features
     target_gas = 'CO'
-    external_gas_feature = []
+    external_gas_feature = ['SGX-SO2']
 
     all_feature = ['SGX-' + target_gas] + external_gas_feature
     all_feature
 
     # Data Division
     dates = sgx_data.loc[sgx_data.index.isin(ref_data.index), :].index
-    train, val, test = np.split(dates, [int(.8*len(dates)), int(.9*len(dates))]) # 80% train, 10% validation, 10% test
+    train, val, test = np.split(dates, [int(.7*len(dates)), int(.85*len(dates))])
     print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
@@ -123,6 +123,9 @@ if __name__ == '__main__':
         plt.figure()
         plt.plot(train_log, label = 'Train Loss')
         plt.plot(val_log, label = 'Val Loss')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss')
+        plt.grid()
         plt.legend()
         plt.show()
         torch.save(model.state_dict(), 'model/cnn_gru.pth')

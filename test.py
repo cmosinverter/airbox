@@ -22,8 +22,8 @@ def create_sequences(data, window_len):
 
 
 input_features = data.shape[0] - 1
-kernel_width = 12
-win_len = 60
+kernel_width = 4
+win_len = 24
 batch_size = 1
 hidden_size = 32
 
