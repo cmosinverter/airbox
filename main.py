@@ -11,6 +11,9 @@ import torch.nn as nn
 from utils import score, visualize_result, storeData, readData, create_sequences, setSeed
 from model import GRU, CNN_GRU, Simple_CNN_GRU
 import argparse
+import glob
+import os
+import datetime
 
 
 if __name__ == '__main__':
@@ -19,8 +22,21 @@ if __name__ == '__main__':
     parser.add_argument("--train", help="start training", action="store_true")
     parser.add_argument("--test", help="start testing", action="store_true")
     parser.add_argument("--store_data", help="store the data to folder", action="store_true")
-
+    parser.add_argument("--num_epochs", help="number of epochs", type=int, default=100)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
+    parser.add_argument("--win_len", help="window length", type=int, default=24)
+    parser.add_argument("--kernel_width", help="kernel width", type=int, default=4)
+    parser.add_argument("--hidden_size", help="hidden size", type=int, default=64)
+    parser.add_argument("--lr", help="learning rate", type=float, default=1e-4)
     args = parser.parse_args()
+    
+    # set the hyperparameters
+    num_epochs = args.num_epochs
+    batch_size = args.batch_size
+    win_len = args.win_len
+    kernel_width = args.kernel_width
+    hidden_size = args.hidden_size
+    lr = args.lr
 
     # set random seed for reproducibility
     setSeed(0)
@@ -40,8 +56,9 @@ if __name__ == '__main__':
     all_feature
 
     # Data Division
+    shift = 2
     dates = sgx_data.loc[sgx_data.index.isin(ref_data.index), :].index
-    train, val, test = np.split(dates, [int(.7*len(dates)), int(.85*len(dates))])
+    train, val, test = np.split(dates, [int((0.1*shift + 0.2)*len(dates)), int((0.1*shift + 0.3)*len(dates))])
     print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
@@ -58,7 +75,6 @@ if __name__ == '__main__':
     # print(train_data.shape, val_data.shape, test_data.shape)
 
     # create sequences
-    win_len = 24 # Specify the window length
     X_train, y_train = create_sequences(train_data, win_len)
     X_val, y_val = create_sequences(val_data, win_len)
     X_test, y_test = create_sequences(test_data, win_len)
@@ -69,24 +85,25 @@ if __name__ == '__main__':
     print(f"Using {device} device")
 
     # model initialization
-    kernel_width = 4
     input_features = X_train.shape[2]
-    hidden_size = 64
     # model = Simple_CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
     model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
     # model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
+
     # loss & optimizer
     criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
 
     #  training
     if args.train == True:
-        num_epochs = 100
-        batch_size = 16
+        
         train_log = []
         val_log = []
-        
+
+        # Generate a unique name for the model based on the current timestamp
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+
         for epoch in range(num_epochs):
             train_loss = 0.0
 
@@ -119,6 +136,7 @@ if __name__ == '__main__':
             train_log.append(avg_train_loss)
             val_log.append(avg_val_loss)
 
+        model_name = f'cnn_gru_{timestamp}'
 
         plt.figure()
         plt.plot(train_log, label = 'Train Loss')
@@ -127,29 +145,54 @@ if __name__ == '__main__':
         plt.ylabel('Loss')
         plt.grid()
         plt.legend()
-        plt.show()
-        torch.save(model.state_dict(), 'model/cnn_gru.pth')
+        plt.savefig(f'model/{model_name}.png')
 
+        # Save the model with the new name
+        torch.save(model.state_dict(), f'model/{model_name}.pth')
 
+        # Save all the hyperparameters in a txt file
+        with open(f'model/{model_name}.txt', 'w') as f:
+            f.write(f'Train loss: {train_log}\n')
+            f.write(f'Val loss: {val_log}\n')
+            f.write(f'lr: {lr}\n')
+            f.write(f'batch_size: {batch_size}\n')
+            f.write(f'num_epochs: {num_epochs}\n')
+            f.write(f'kernel_width: {kernel_width}\n')
+            f.write(f'hidden_size: {hidden_size}\n')
+            f.write(f'win_len: {win_len}\n')
+            f.write(f'all_feature: {all_feature}\n')
+            f.write(f'target_gas: {target_gas}\n')
+        
     # Testing
     if args.test == True:
 
-        model.load_state_dict(torch.load('model/cnn_gru.pth'))
+        # Find the latest model in the model directory
+        list_of_files = glob.glob('model/*.pth') 
+        latest_model = max(list_of_files, key=os.path.getctime)
+
+        # Load the latest model
+        model.load_state_dict(torch.load(latest_model))
+
+        # Set the model to evaluation mode
         model.eval()
+
+        # Calculate the loss for the train set
         y_train_cal = model(X_train.to(device))
         print('Train')
         score(y_train, y_train_cal.cpu().detach().numpy())
         visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
 
+        # Calculate the loss for the val set
         y_val_cal = model(X_val.to(device))
         print('Val')
         score(y_val, y_val_cal.cpu().detach().numpy())
         visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
 
-        y_test_cal = model(X_test.to(device))
-        print('Test')
-        score(y_test, y_test_cal.cpu().detach().numpy())
-        visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
+        # Calculate the loss for the test set
+        # y_test_cal = model(X_test.to(device))
+        # print('Test')
+        # score(y_test, y_test_cal.cpu().detach().numpy())
+        # visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
 
 
 
