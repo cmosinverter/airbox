@@ -43,7 +43,6 @@ class CNN_GRU(nn.Module):
         self.kernel_width = kernel_width
         self.conv_out_channels = conv_out_channels
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=conv_out_channels, kernel_size=(input_features, kernel_width))
-        # self.MaxPool1 = nn.MaxPool2d(kernel_size=(1, 3), stride = 1)
         self.gru1 = nn.GRU(input_size=conv_out_channels+1, hidden_size=hidden_size, batch_first=True)
         # self.dropout = nn.Dropout(p=0.1)
         self.fc1 = nn.Linear(hidden_size, 1)

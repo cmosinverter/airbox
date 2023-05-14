@@ -50,15 +50,22 @@ if __name__ == '__main__':
 
     # target & additional features
     target_gas = 'CO'
-    external_gas_feature = ['SGX-SO2']
+    external_gas_feature = []
 
     all_feature = ['SGX-' + target_gas] + external_gas_feature
     all_feature
 
     # Data Division
-    shift = 2
     dates = sgx_data.loc[sgx_data.index.isin(ref_data.index), :].index
-    train, val, test = np.split(dates, [int((0.1*shift + 0.2)*len(dates)), int((0.1*shift + 0.3)*len(dates))])
+    print('The total valid samples:', len(dates))
+    # Add time feature
+    diff_from_first = ref_data.index - ref_data.index[0]
+    diff_in_hours = diff_from_first.total_seconds() / 3600
+    ref_data['time'] = diff_in_hours
+
+
+    
+    train, val, test = np.split(dates, [int(.7*len(dates)), int(.85*len(dates))])
     print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
@@ -146,6 +153,7 @@ if __name__ == '__main__':
         plt.grid()
         plt.legend()
         plt.savefig(f'model/{model_name}.png')
+        plt.show()
 
         # Save the model with the new name
         torch.save(model.state_dict(), f'model/{model_name}.pth')
@@ -167,33 +175,35 @@ if __name__ == '__main__':
     if args.test == True:
 
         # Find the latest model in the model directory
-        list_of_files = glob.glob('model/*.pth') 
+        list_of_files = glob.glob('model/*.pth')
         latest_model = max(list_of_files, key=os.path.getctime)
 
         # Load the latest model
         model.load_state_dict(torch.load(latest_model))
 
-        # Set the model to evaluation mode
+        # Set the model to evaluation model
         model.eval()
 
         # Calculate the loss for the train set
-        y_train_cal = model(X_train.to(device))
-        print('Train')
-        score(y_train, y_train_cal.cpu().detach().numpy())
-        visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
+        # y_train_cal = model(X_train.to(device))
+        # print('Train')
+        # score(y_train, y_train_cal.cpu().detach().numpy())
+        # visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
 
         # Calculate the loss for the val set
-        y_val_cal = model(X_val.to(device))
-        print('Val')
-        score(y_val, y_val_cal.cpu().detach().numpy())
-        visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
+        # y_val_cal = model(X_val.to(device))
+        # print('Val')
+        # score(y_val, y_val_cal.cpu().detach().numpy())
+        # visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
 
         # Calculate the loss for the test set
-        # y_test_cal = model(X_test.to(device))
-        # print('Test')
-        # score(y_test, y_test_cal.cpu().detach().numpy())
-        # visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
+        y_test_cal = model(X_test.to(device))
+        print('Test')
+        r2, rmse = score(y_test, y_test_cal.cpu().detach().numpy())
+        m, inter = visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
 
+
+        
 
 
 

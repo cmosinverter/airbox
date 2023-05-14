@@ -3,7 +3,7 @@ import torch
 import numpy as np
 from model import CNN_GRU
 
-data = torch.randn(1468, 4)
+data = torch.randn(1468, 5)
 data = torch.transpose(data, 0, 1)
 
 
@@ -25,7 +25,7 @@ input_features = data.shape[0] - 1
 kernel_width = 4
 win_len = 24
 batch_size = 1
-hidden_size = 32
+hidden_size = 64
 
 model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size)
 X, y = create_sequences(data, win_len)

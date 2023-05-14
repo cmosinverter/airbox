@@ -85,6 +85,7 @@ def readData():
 def score(y_pred, y_true):
     print('***R2 Score: {:.2f}'.format(r2_score(y_pred, y_true)))
     print('***RMSE: {:.4f}'.format(math.sqrt(mean_squared_error(y_pred, y_true))))
+    return r2_score(y_pred, y_true), math.sqrt(mean_squared_error(y_pred, y_true))
 
 def visualize_result(y_true, y_pred, dates, title = ""):
     x = range(len(dates))
@@ -104,10 +105,23 @@ def visualize_result(y_true, y_pred, dates, title = ""):
     ax[1].legend()
     ax[1].set_xlabel('Predict')
     ax[1].set_ylabel('Actual')
+
+    # plot the regression line
+    reg = LinearRegression().fit(y_pred.reshape(-1, 1), y_true.reshape(-1, 1))
+    intercept = reg.intercept_
+    slope = reg.coef_[0]
+    y = intercept + slope * y_pred.reshape(-1, 1)
+    ax[1].plot(y_pred.reshape(-1, 1), y, color='red', label='Regression Line')
+    # Add the linear equation as a text annotation
+    equation_text = f'y = {slope.item():.2f}x + {intercept.item():.2f}'
+    ax[1].text(np.min(y_pred.reshape(-1, 1)), np.max(y), equation_text, fontsize=12, verticalalignment='top')
+
     plt.tight_layout()
     if title != "":
         plt.savefig(f'fig/{title}', dpi=300, bbox_inches='tight')
     plt.show()
+
+    return slope.item(), intercept.item()
 
 def create_sequences(data, window_len):
     xs = []
