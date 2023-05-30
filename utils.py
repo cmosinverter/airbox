@@ -64,19 +64,21 @@ def storeData():
     ref.index.name = None
     ref_data = pd.concat([ref.loc[ref['"itemengname"'] == p, ['"concentration"']] for p in pollutant + environment], axis = 1)
     ref_data.columns = ['REF-' + p for p in pollutant + environment]
-    ref_data = ref_data.dropna()
     ref_data.to_csv('data/reference.csv')
 
     paths = [p for p in glob.glob(os.path.join('D:/NTHU/airbox-data/deviceData', '*', '*.csv')) if sgx_uuid in p]
     sgx_data = pd.concat([getData(path, 'SGX') for path in paths if getData(path, 'SGX') is not None])
     print(f'Number of Samples: {len(sgx_data)}')
     sgx_data = sgx_data.groupby('measure_time').mean()
-    sgx_data.drop(sgx_data.loc[(sgx_data.index >= '2023-03-30 14:00:00') & (sgx_data.index <= '2023-04-12 10:00:00')].index, inplace=True)
+    # Drop rows with all zero values
+    sgx_data = sgx_data[~(sgx_data == 0).all(axis=1)]
+    
     sgx_data.to_csv('data/sgx.csv')
 
 def readData():
 
     sgx = pd.read_csv('data/sgx.csv', index_col = [0])
+    # sgx = pd.read_csv('data/sgx_co_pad.csv', index_col = [0])
     sgx.index = pd.to_datetime(sgx.index)
     ref = pd.read_csv('data/reference.csv', index_col = [0])
     ref.index = pd.to_datetime(ref.index)

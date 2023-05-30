@@ -44,7 +44,6 @@ class CNN_GRU(nn.Module):
         self.conv_out_channels = conv_out_channels
         self.conv1 = nn.Conv2d(in_channels=1, out_channels=conv_out_channels, kernel_size=(input_features, kernel_width))
         self.gru1 = nn.GRU(input_size=conv_out_channels+1, hidden_size=hidden_size, batch_first=True)
-        # self.dropout = nn.Dropout(p=0.1)
         self.fc1 = nn.Linear(hidden_size, 1)
 
         
@@ -56,12 +55,10 @@ class CNN_GRU(nn.Module):
         # print("The shape of encoded feature: ", out.shape)
         out = torch.cat((out, x_t), dim=1)
         # print("The shape of all feature: ", out.shape)
-        # out = self.MaxPool1(out)
         # print("The shape of maxpool feature: ", out.shape)
         out = out.permute(0, 3, 1, 2).reshape(out.size(0), out.size(3), -1)
         out, _ = self.gru1(out)
         # print("The shape of GRU output: ", out.shape)
-        # out = self.dropout(out)
         out = self.fc1(out[:, -1, :])
         # print("The shape of output fc1: ", out.shape)
         return out

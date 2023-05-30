@@ -22,7 +22,7 @@ if __name__ == '__main__':
     parser.add_argument("--train", help="start training", action="store_true")
     parser.add_argument("--test", help="start testing", action="store_true")
     parser.add_argument("--store_data", help="store the data to folder", action="store_true")
-    parser.add_argument("--num_epochs", help="number of epochs", type=int, default=100)
+    parser.add_argument("--epoch", help="number of epochs", type=int, default=100)
     parser.add_argument("--batch_size", help="batch size", type=int, default=16)
     parser.add_argument("--win_len", help="window length", type=int, default=24)
     parser.add_argument("--kernel_width", help="kernel width", type=int, default=4)
@@ -31,7 +31,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     
     # set the hyperparameters
-    num_epochs = args.num_epochs
+    num_epochs = args.epoch
     batch_size = args.batch_size
     win_len = args.win_len
     kernel_width = args.kernel_width
@@ -45,34 +45,37 @@ if __name__ == '__main__':
     if args.store_data == True:
         storeData()
 
+    # target gas
+    target_gas = 'CO'
+
     # read the data
     sgx_data, ref_data = readData()
+    data = pd.concat([ref_data, sgx_data], axis = 1)
+    data = data.reindex(data.index, fill_value=np.nan)
 
-    # target & additional features
-    target_gas = 'CO'
-    external_gas_feature = []
+    columns = ['REF-AMB_TEMP', 'REF-RH', f'SGX-{target_gas}', f'REF-{target_gas}']
 
-    all_feature = ['SGX-' + target_gas] + external_gas_feature
-    all_feature
+    # data.dropna(subset=columns, inplace=True)
 
-    # Data Division
-    dates = sgx_data.loc[sgx_data.index.isin(ref_data.index), :].index
-    print('The total valid samples:', len(dates))
-    # Add time feature
-    diff_from_first = ref_data.index - ref_data.index[0]
-    diff_in_hours = diff_from_first.total_seconds() / 3600
-    ref_data['time'] = diff_in_hours
-
-
+    # Find the days where there is any missing value in any of the columns, Remove these days from the original DataFrame
+    missing_days = data[columns].isnull().resample('D').sum().any(axis=1)
+    missing_days = missing_days[missing_days].index
+    data = data[~data.index.normalize().isin(missing_days)]
     
-    train, val, test = np.split(dates, [int(.7*len(dates)), int(.85*len(dates))])
+    # Data Division
+    dates = data.index
+    print('The total valid samples:', len(dates))
+
+    split_date = pd.to_datetime('2023-05-10 23:00:00')
+    train, test = dates[dates <= split_date], dates[dates > split_date]
+    train, val = np.split(train, [int(.9*len(train))])
     print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
-    train_data = pd.concat([sgx_data.loc[train, all_feature], ref_data.loc[train, ['REF-RH', 'REF-AMB_TEMP']], ref_data.loc[train , ['REF-' + target_gas]]] , axis=1)
-    val_data = pd.concat([sgx_data.loc[val, all_feature], ref_data.loc[val, ['REF-RH', 'REF-AMB_TEMP']], ref_data.loc[val , ['REF-' + target_gas]]] , axis=1)
-    test_data = pd.concat([sgx_data.loc[test, all_feature], ref_data.loc[test, ['REF-RH', 'REF-AMB_TEMP']], ref_data.loc[test , ['REF-' + target_gas]]] , axis=1)
-    
+    train_data = data.loc[train, columns]
+    val_data = data.loc[val, columns]
+    test_data = data.loc[test, columns]
+
     # Scaler
     scaler = MinMaxScaler()
     scaler.fit(train_data)
@@ -93,9 +96,7 @@ if __name__ == '__main__':
 
     # model initialization
     input_features = X_train.shape[2]
-    # model = Simple_CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
     model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
-    # model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
 
     # loss & optimizer
     criterion = nn.MSELoss()
@@ -168,8 +169,6 @@ if __name__ == '__main__':
             f.write(f'kernel_width: {kernel_width}\n')
             f.write(f'hidden_size: {hidden_size}\n')
             f.write(f'win_len: {win_len}\n')
-            f.write(f'all_feature: {all_feature}\n')
-            f.write(f'target_gas: {target_gas}\n')
         
     # Testing
     if args.test == True:
@@ -185,22 +184,25 @@ if __name__ == '__main__':
         model.eval()
 
         # Calculate the loss for the train set
-        # y_train_cal = model(X_train.to(device))
-        # print('Train')
-        # score(y_train, y_train_cal.cpu().detach().numpy())
-        # visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
+        y_train_cal = model(X_train.to(device))
+        print('Train')
+        score(y_train, y_train_cal.cpu().detach().numpy())
+        visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
 
         # Calculate the loss for the val set
-        # y_val_cal = model(X_val.to(device))
-        # print('Val')
-        # score(y_val, y_val_cal.cpu().detach().numpy())
-        # visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
+        y_val_cal = model(X_val.to(device))
+        print('Val')
+        score(y_val, y_val_cal.cpu().detach().numpy())
+        visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
 
         # Calculate the loss for the test set
         y_test_cal = model(X_test.to(device))
         print('Test')
-        r2, rmse = score(y_test, y_test_cal.cpu().detach().numpy())
-        m, inter = visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
+        score(y_test, y_test_cal.cpu().detach().numpy())
+        visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
+
+
+
 
 
         
