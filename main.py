@@ -8,8 +8,8 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.linear_model import LinearRegression
 import torch
 import torch.nn as nn
-from utils import score, visualize_result, storeData, readData, create_sequences, setSeed
-from model import GRU, CNN_GRU, Simple_CNN_GRU
+from utils import *
+from model import *
 import argparse
 import glob
 import os
@@ -22,21 +22,25 @@ if __name__ == '__main__':
     parser.add_argument("--train", help="start training", action="store_true")
     parser.add_argument("--test", help="start testing", action="store_true")
     parser.add_argument("--store_data", help="store the data to folder", action="store_true")
-    parser.add_argument("--epoch", help="number of epochs", type=int, default=100)
-    parser.add_argument("--batch_size", help="batch size", type=int, default=16)
+    parser.add_argument("--epochs", help="number of epochs", type=int, default=80)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=32)
     parser.add_argument("--win_len", help="window length", type=int, default=24)
     parser.add_argument("--kernel_width", help="kernel width", type=int, default=4)
-    parser.add_argument("--hidden_size", help="hidden size", type=int, default=64)
+    parser.add_argument("--hidden_size", help="hidden size", type=int, default=32)
     parser.add_argument("--lr", help="learning rate", type=float, default=1e-4)
+    parser.add_argument("--single_sensor_1", help="use single sensor (SGX)", action="store_true")
+    parser.add_argument("--single_sensor_2", help="use single sensor (SPEC)", action="store_true")
+    parser.add_argument("--target_gas", help="gas for training", type=str, default='O3')
     args = parser.parse_args()
     
     # set the hyperparameters
-    num_epochs = args.epoch
+    num_epochs = args.epochs
     batch_size = args.batch_size
     win_len = args.win_len
     kernel_width = args.kernel_width
     hidden_size = args.hidden_size
     lr = args.lr
+    target_gas = args.target_gas
 
     # set random seed for reproducibility
     setSeed(0)
@@ -45,30 +49,34 @@ if __name__ == '__main__':
     if args.store_data == True:
         storeData()
 
-    # target gas
-    target_gas = 'CO'
-
     # read the data
-    sgx_data, ref_data = readData()
-    data = pd.concat([ref_data, sgx_data], axis = 1)
+    spec_data, sgx_data, ref_data = readData()
+    data = pd.concat([ref_data, sgx_data, spec_data], axis = 1)
     data = data.reindex(data.index, fill_value=np.nan)
 
-    columns = ['REF-AMB_TEMP', 'REF-RH', f'SGX-{target_gas}', f'REF-{target_gas}']
+    if args.single_sensor_1:
+        columns = ['REF-AMB_TEMP', 'REF-RH', f'SGX-{target_gas}', f'REF-{target_gas}']
+    elif args.single_sensor_2:
+        columns = ['REF-AMB_TEMP', 'REF-RH', f'SPEC-{target_gas}', f'REF-{target_gas}']
+    else:
+        columns = ['SGX-NO2', 'SGX-CO', f'SPEC-{target_gas}', f'REF-{target_gas}']
 
-    # data.dropna(subset=columns, inplace=True)
+    data.dropna(subset=columns, inplace=True)
+    data = data.abs()
 
-    # Find the days where there is any missing value in any of the columns, Remove these days from the original DataFrame
-    missing_days = data[columns].isnull().resample('D').sum().any(axis=1)
-    missing_days = missing_days[missing_days].index
-    data = data[~data.index.normalize().isin(missing_days)]
-    
     # Data Division
     dates = data.index
     print('The total valid samples:', len(dates))
 
-    split_date = pd.to_datetime('2023-05-10 23:00:00')
-    train, test = dates[dates <= split_date], dates[dates > split_date]
-    train, val = np.split(train, [int(.9*len(train))])
+    # Keep the dates ealier than 2023-05-31 23:00:00
+    dates = dates[dates <= pd.to_datetime('2023-05-31 23:00:00')]
+
+    split_date_1 = pd.to_datetime('2023-03-31 23:00:00')
+    split_date_2 = pd.to_datetime('2023-04-30 23:00:00')
+
+    train = dates[dates <= split_date_1]
+    val = dates[(dates > split_date_1) & (dates <= split_date_2)]
+    test = dates[dates > split_date_2]
     print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
@@ -85,23 +93,22 @@ if __name__ == '__main__':
     # print(train_data.shape, val_data.shape, test_data.shape)
 
     # create sequences
-    X_train, y_train = create_sequences(train_data, win_len)
-    X_val, y_val = create_sequences(val_data, win_len)
-    X_test, y_test = create_sequences(test_data, win_len)
+    X_train, y_train, train = create_sequences(train_data, win_len, train, use_consecutive = False)
+    X_val, y_val, val = create_sequences(val_data, win_len, val, use_consecutive = False)
+    X_test, y_test, test = create_sequences(test_data, win_len, test, use_consecutive = False)
     # print(X_train.shape, y_train.shape, X_val.shape, y_val.shape, X_test.shape, y_test.shape)
-    
     #  checking device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using {device} device")
 
     # model initialization
     input_features = X_train.shape[2]
+    # model = Simple_CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
     model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
 
     # loss & optimizer
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
-
 
     #  training
     if args.train == True:
@@ -145,30 +152,8 @@ if __name__ == '__main__':
             val_log.append(avg_val_loss)
 
         model_name = f'cnn_gru_{timestamp}'
-
-        plt.figure()
-        plt.plot(train_log, label = 'Train Loss')
-        plt.plot(val_log, label = 'Val Loss')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
-        plt.grid()
-        plt.legend()
-        plt.savefig(f'model/{model_name}.png')
-        plt.show()
-
         # Save the model with the new name
         torch.save(model.state_dict(), f'model/{model_name}.pth')
-
-        # Save all the hyperparameters in a txt file
-        with open(f'model/{model_name}.txt', 'w') as f:
-            f.write(f'Train loss: {train_log}\n')
-            f.write(f'Val loss: {val_log}\n')
-            f.write(f'lr: {lr}\n')
-            f.write(f'batch_size: {batch_size}\n')
-            f.write(f'num_epochs: {num_epochs}\n')
-            f.write(f'kernel_width: {kernel_width}\n')
-            f.write(f'hidden_size: {hidden_size}\n')
-            f.write(f'win_len: {win_len}\n')
         
     # Testing
     if args.test == True:
@@ -187,19 +172,22 @@ if __name__ == '__main__':
         y_train_cal = model(X_train.to(device))
         print('Train')
         score(y_train, y_train_cal.cpu().detach().numpy())
-        visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train[win_len-1:], f'{target_gas} Train CNN_GRU')
+        visualize_result(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train, f'{target_gas} Train CNN_GRU')
+        visualize_result_trend(y_train.numpy(), y_train_cal.cpu().detach().numpy(), train, f'{target_gas} Train CNN_GRU')
 
         # Calculate the loss for the val set
         y_val_cal = model(X_val.to(device))
         print('Val')
         score(y_val, y_val_cal.cpu().detach().numpy())
-        visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val[win_len-1:], f'{target_gas} Val CNN_GRU')
+        visualize_result(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val, f'{target_gas} Val CNN_GRU')
+        visualize_result_trend(y_val.numpy(), y_val_cal.cpu().detach().numpy(), val, f'{target_gas} Val CNN_GRU')
 
         # Calculate the loss for the test set
         y_test_cal = model(X_test.to(device))
         print('Test')
         score(y_test, y_test_cal.cpu().detach().numpy())
-        visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test[win_len-1:], f'{target_gas} Test CNN_GRU')
+        visualize_result(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test, f'{target_gas} Test CNN_GRU')
+        visualize_result_trend(y_test.numpy(), y_test_cal.cpu().detach().numpy(), test, f'{target_gas} Test CNN_GRU')
 
 
 

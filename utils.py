@@ -75,35 +75,44 @@ def storeData():
     
     sgx_data.to_csv('data/sgx.csv')
 
-def readData():
+    paths = [p for p in glob.glob(os.path.join('D:/NTHU/airbox-data/deviceData', '*', '*.csv')) if spec_uuid in p]
+    spec_data = pd.concat([getData(path, 'SPEC') for path in paths if getData(path, 'SPEC') is not None])
+    print(f'Number of Samples: {len(spec_data)}')
+    spec_data = spec_data.groupby('measure_time').mean()
+    # Drop rows with all zero values
+    spec_data = spec_data[~(spec_data == 0).all(axis=1)]
+    
+    spec_data.to_csv('data/spec.csv')
 
+def readData():
+    spec = pd.read_csv('data/spec.csv', index_col = [0])
+    spec.index = pd.to_datetime(spec.index)
     sgx = pd.read_csv('data/sgx.csv', index_col = [0])
-    # sgx = pd.read_csv('data/sgx_co_pad.csv', index_col = [0])
     sgx.index = pd.to_datetime(sgx.index)
     ref = pd.read_csv('data/reference.csv', index_col = [0])
     ref.index = pd.to_datetime(ref.index)
-    return sgx, ref
+    return spec, sgx, ref
 
 def score(y_pred, y_true):
     print('***R2 Score: {:.2f}'.format(r2_score(y_pred, y_true)))
     print('***RMSE: {:.4f}'.format(math.sqrt(mean_squared_error(y_pred, y_true))))
     return r2_score(y_pred, y_true), math.sqrt(mean_squared_error(y_pred, y_true))
 
-def visualize_result(y_true, y_pred, dates, title = ""):
+def visualize_result(y_true, y_pred, dates, title=""):
     x = range(len(dates))
-    fig, ax = plt.subplots(1, 2, figsize = (16, 6))
+    fig, ax = plt.subplots(1, 2, figsize=(16, 6))
     if title != "":
         fig.suptitle(title)
     else:
         fig.suptitle('Result')
-    ax[0].plot(x, y_true, label = 'Reference')
-    ax[0].plot(x, y_pred, label = 'Calibrated')
-    ax[0].set_xticks(np.arange(0, len(dates), len(dates)//8))
-    ax[0].set_xticklabels(labels = dates[::len(dates)//8].date, rotation = 20)
+    ax[0].plot(x, y_true, label='Reference')
+    ax[0].plot(x, y_pred, label='Calibrated')
+    ax[0].set_xticks(np.arange(0, len(dates), len(dates) // 8))
+    ax[0].set_xticklabels(labels=list(map(lambda x: str(x)[:10], dates[::len(dates) // 8])), rotation=20)
     ax[0].legend()
 
     ax[1].scatter(y_pred, y_true)
-    ax[1].plot([0, 1.2], [0, 1.2], 'g--', linewidth=2, markersize=12, label = 'ideal')
+    ax[1].plot([0, 0.6], [0, 0.6], 'g--', linewidth=2, markersize=12, label='ideal')
     ax[1].legend()
     ax[1].set_xlabel('Predict')
     ax[1].set_ylabel('Actual')
@@ -114,26 +123,82 @@ def visualize_result(y_true, y_pred, dates, title = ""):
     slope = reg.coef_[0]
     y = intercept + slope * y_pred.reshape(-1, 1)
     ax[1].plot(y_pred.reshape(-1, 1), y, color='red', label='Regression Line')
+    
     # Add the linear equation as a text annotation
     equation_text = f'y = {slope.item():.2f}x + {intercept.item():.2f}'
     ax[1].text(np.min(y_pred.reshape(-1, 1)), np.max(y), equation_text, fontsize=12, verticalalignment='top')
 
     plt.tight_layout()
+    plt.savefig(f'fig/{title}', dpi=300, bbox_inches='tight')
+    # plt.show()
+
+def visualize_result_trend(y_true, y_pred, dates, title=""):
+    x = range(len(dates))
+    fig = plt.figure(figsize=(16, 6))
+    plt.plot(x, y_true, label='Reference')
+    plt.plot(x, y_pred, label='Calibrated')
+    plt.xlabel('Date')
+    plt.ylabel('Concentration (MinMaxScaled)')
+    plt.xticks(np.arange(0, len(dates), len(dates) // 8))
+    plt.gca().set_xticklabels(list(map(lambda x: str(x)[:10], dates[::len(dates) // 8])), rotation=20)
+    plt.legend()
+
+    plt.tight_layout()
+    plt.savefig(f'fig/{title}_trend', dpi=300, bbox_inches='tight')
+    # plt.show()
+
+def visualize_result_scatter(y_true, y_pred, dates, title=""):
+    x = range(len(dates))
+    fig = plt.figure(figsize=(8, 6))
+    plt.scatter(y_pred, y_true)
+    plt.plot([0, 0.6], [0, 0.6], 'g--', linewidth=2, markersize=12, label='ideal')
+    plt.xlabel('Predict')
+    plt.ylabel('Actual')
+    # plot the regression line
+    reg = LinearRegression().fit(y_pred.reshape(-1, 1), y_true.reshape(-1, 1))
+    intercept = reg.intercept_
+    slope = reg.coef_[0]
+    y = intercept + slope * y_pred.reshape(-1, 1)
+    plt.plot(y_pred.reshape(-1, 1), y, color='red', label='Regression Line')
+    plt.legend()
+    # Add the linear equation as a text annotation
+    equation_text = f'y = {slope.item():.2f}x + {intercept.item():.2f}'
+    plt.text(np.min(y_pred.reshape(-1, 1)), np.max(y), equation_text, fontsize=12, verticalalignment='top')
+
+    plt.tight_layout()
     if title != "":
-        plt.savefig(f'fig/{title}', dpi=300, bbox_inches='tight')
+        plt.savefig(f'fig/{title}_scatter', dpi=300, bbox_inches='tight')
+    else:
+        plt.savefig('fig/result_scatter', dpi=300, bbox_inches='tight')
     plt.show()
 
-    return slope.item(), intercept.item()
+def is_consecutive(time_list):
+    for i in range(len(time_list)-1):
+        time_diff = time_list[i+1] - time_list[i]
+        if time_diff != pd.Timedelta(hours=1):
+            return False
+    return True
 
-def create_sequences(data, window_len):
+
+def create_sequences(data, window_len, dates, use_consecutive=False):
     xs = []
     ys = []
-
+    new_dates = []
     for i in range(data.shape[1]-window_len+1):
-        x = data[:-1, i:i+window_len]
-        y = data[-1:, i+window_len-1]
-        xs.append(x)
-        ys.append(y)
-
-    return torch.unsqueeze(torch.tensor(np.stack(xs), dtype=torch.float32), dim=1), torch.tensor(np.stack(ys), dtype=torch.float32)
-
+        if use_consecutive:
+            if is_consecutive(dates[i:i+window_len]):
+                x = data[:-1, i:i+window_len]
+                y = data[-1:, i+window_len-1]
+                xs.append(x)
+                ys.append(y)
+                new_dates.append(dates[i+window_len-1])
+            else:
+                continue
+        else:
+            x = data[:-1, i:i+window_len]
+            y = data[-1:, i+window_len-1]
+            xs.append(x)
+            ys.append(y)
+            new_dates.append(dates[i+window_len-1])
+    
+    return torch.unsqueeze(torch.tensor(np.stack(xs), dtype=torch.float32), dim=1), torch.tensor(np.stack(ys), dtype=torch.float32), new_dates
