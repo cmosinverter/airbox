@@ -8,10 +8,14 @@ import os
 import glob
 import json
 import torch
+import torch.nn as nn
+from model import *
+from train import *
 from datetime import datetime, timedelta
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score, mean_squared_error
+from sklearn.preprocessing import MinMaxScaler
 
 
 sgx_uuid = '04311cdc-a6a5-4d5e-916e-4e75076a8f0a'
@@ -202,3 +206,80 @@ def create_sequences(data, window_len, dates, use_consecutive=False):
             new_dates.append(dates[i+window_len-1])
     
     return torch.unsqueeze(torch.tensor(np.stack(xs), dtype=torch.float32), dim=1), torch.tensor(np.stack(ys), dtype=torch.float32), new_dates
+
+def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, target_gas):
+
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    criterion = nn.MSELoss()
+    # Prepare the data
+    features = list(data.columns[6:])
+
+    # Create a set to store selected features
+    selected_features = set(range(len(features)))
+
+    remove_sequence = []
+
+    while len(selected_features) > 3:
+        scores = []
+        
+        for i in range(len(selected_features)):
+            # Set the random seed
+            setSeed(0)
+
+            # Remove one feature from the feature set each time
+            feature_subset_idx = list(selected_features - {list(selected_features)[i]})
+            print('Current training: ', feature_subset_idx)
+
+            # Create a new training set and validation set
+            tmp_data = data.dropna(subset = [features[idx] for idx in feature_subset_idx] + [f'REF-{target_gas}'])
+            tmp_data = tmp_data.abs()
+
+            # Split the data into training and test sets
+            dates = tmp_data.index
+
+            # Keep the dates ealier than 2023-05-31 23:00:00
+            dates = dates[dates <= pd.to_datetime('2023-05-31 23:00:00')]
+
+            split_date_1 = pd.to_datetime('2023-03-31 23:00:00')
+            split_date_2 = pd.to_datetime('2023-04-30 23:00:00')
+
+            train = dates[dates <= split_date_1]
+            val = dates[(dates > split_date_1) & (dates <= split_date_2)]
+
+            train_data = tmp_data.loc[train, [features[idx] for idx in feature_subset_idx] + [f'REF-{target_gas}']]
+            val_data = tmp_data.loc[val, [features[idx] for idx in feature_subset_idx] + [f'REF-{target_gas}']]
+
+            # Scaler
+            scaler = MinMaxScaler()
+            scaler.fit(train_data)
+            train_data = np.transpose(scaler.transform(train_data))
+            val_data = np.transpose(scaler.transform(val_data))
+            # Create sequences
+            X_train, y_train, train = create_sequences(train_data, win_len, train, use_consecutive = False)
+            X_val, y_val, val = create_sequences(val_data, win_len, val, use_consecutive = False)
+            
+
+            # Select the corresponding features
+            input_features = X_train.shape[2]
+
+            # Create a new model
+            model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
+            optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+            # Train the model
+            training(model, X_train, y_train, X_val, y_val, num_epochs=num_epochs, batch_size=batch_size, optimizer=optimizer, criterion=criterion, device=device)
+
+            # Make predictions & score
+            y_val_cal = model(X_val.to(device))
+            r2, rmse = score(y_val, y_val_cal.cpu().detach().numpy())
+            scores.append(r2)
+
+
+        least_important_feature = list(selected_features)[np.argmax(scores)]
+        selected_features.remove(least_important_feature)
+        remove_sequence.append((features[least_important_feature], round(max(scores), 2)))
+        print('The least important feature: ', features[least_important_feature], round(max(scores), 2))
+            
+    print('The selected features: ', [features[idx] for idx in selected_features])
+    print('The removed sequence: ', remove_sequence)
+    return [features[idx] for idx in selected_features]

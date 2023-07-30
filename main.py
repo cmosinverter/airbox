@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 from utils import *
 from model import *
+from train import *
 import argparse
 import glob
 import os
@@ -28,9 +29,8 @@ if __name__ == '__main__':
     parser.add_argument("--kernel_width", help="kernel width", type=int, default=4)
     parser.add_argument("--hidden_size", help="hidden size", type=int, default=32)
     parser.add_argument("--lr", help="learning rate", type=float, default=1e-4)
-    parser.add_argument("--single_sensor_1", help="use single sensor (SGX)", action="store_true")
-    parser.add_argument("--single_sensor_2", help="use single sensor (SPEC)", action="store_true")
-    parser.add_argument("--target_gas", help="gas for training", type=str, default='O3')
+    parser.add_argument("--feature_set", help="which feature subset to use (1~4)", type=int, default=1)
+    parser.add_argument("--target_gas", help="gas for training", type=str, default='CO')
     args = parser.parse_args()
     
     # set the hyperparameters
@@ -41,6 +41,7 @@ if __name__ == '__main__':
     hidden_size = args.hidden_size
     lr = args.lr
     target_gas = args.target_gas
+    feature_subset = args.feature_set
 
     # set random seed for reproducibility
     setSeed(0)
@@ -54,12 +55,26 @@ if __name__ == '__main__':
     data = pd.concat([ref_data, sgx_data, spec_data], axis = 1)
     data = data.reindex(data.index, fill_value=np.nan)
 
-    if args.single_sensor_1:
+
+    # feature selection
+    if feature_subset == 1:
         columns = ['REF-AMB_TEMP', 'REF-RH', f'SGX-{target_gas}', f'REF-{target_gas}']
-    elif args.single_sensor_2:
+    elif feature_subset == 2:
         columns = ['REF-AMB_TEMP', 'REF-RH', f'SPEC-{target_gas}', f'REF-{target_gas}']
-    else:
-        columns = ['SGX-NO2', 'SGX-CO', f'SPEC-{target_gas}', f'REF-{target_gas}']
+    elif feature_subset == 3:
+        columns = ['REF-AMB_TEMP', 'REF-RH', f'SPEC-{target_gas}', f'SGX-{target_gas}', f'REF-{target_gas}']
+    elif feature_subset == 4:
+        columns =  ['REF-AMB_TEMP', 'SGX-SO2', 'SPEC-CO', 'SPEC-O3', 'SGX-CO'] + [f'REF-{target_gas}']
+    elif feature_subset == 5:
+        columns = sfs(data = data,
+                        win_len = win_len,
+                        kernel_width = kernel_width,
+                        hidden_size = hidden_size,
+                        num_epochs = num_epochs,
+                        batch_size = batch_size, 
+                        target_gas = target_gas,
+                        lr = lr)
+        columns += [f'REF-{target_gas}']
 
     data.dropna(subset=columns, inplace=True)
     data = data.abs()
@@ -97,6 +112,7 @@ if __name__ == '__main__':
     X_val, y_val, val = create_sequences(val_data, win_len, val, use_consecutive = False)
     X_test, y_test, test = create_sequences(test_data, win_len, test, use_consecutive = False)
     # print(X_train.shape, y_train.shape, X_val.shape, y_val.shape, X_test.shape, y_test.shape)
+
     #  checking device
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     print(f"Using {device} device")
@@ -113,47 +129,7 @@ if __name__ == '__main__':
     #  training
     if args.train == True:
         
-        train_log = []
-        val_log = []
-
-        # Generate a unique name for the model based on the current timestamp
-        timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
-
-        for epoch in range(num_epochs):
-            train_loss = 0.0
-
-            # training data indices
-            indices = torch.tensor(list(range(len(X_train))))
-
-            for i in range(0, X_train.shape[0], batch_size):
-                optimizer.zero_grad()
-
-                # get batch of data
-                indices_batch = indices[i:i+batch_size]
-                batch_X, batch_y = X_train[indices_batch].to(device), y_train[indices_batch].to(device)
-
-                # forward pass
-                outputs = model(batch_X)
-                loss = criterion(outputs, batch_y)
-
-                # backward pass and optimization
-                loss.backward()
-                optimizer.step()
-
-                # loss calculation
-                train_loss += loss.item()
-
-            # print average loss for the epoch
-            y_val_cal = model(X_val.to(device))
-            avg_val_loss = criterion(y_val_cal, y_val.to(device)).item()
-            avg_train_loss = train_loss / (X_train.shape[0] / batch_size)
-            print('Epoch [{}/{}], Train Loss: {:.4f}, Validation Loss: {:.4f}'.format(epoch+1, num_epochs, avg_train_loss, avg_val_loss))
-            train_log.append(avg_train_loss)
-            val_log.append(avg_val_loss)
-
-        model_name = f'cnn_gru_{timestamp}'
-        # Save the model with the new name
-        torch.save(model.state_dict(), f'model/{model_name}.pth')
+        training(model, X_train, y_train, X_val, y_val, num_epochs, batch_size, optimizer, criterion, device)
         
     # Testing
     if args.test == True:
