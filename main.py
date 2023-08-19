@@ -23,13 +23,13 @@ if __name__ == '__main__':
     parser.add_argument("--train", help="start training", action="store_true")
     parser.add_argument("--test", help="start testing", action="store_true")
     parser.add_argument("--store_data", help="store the data to folder", action="store_true")
-    parser.add_argument("--epochs", help="number of epochs", type=int, default=80)
-    parser.add_argument("--batch_size", help="batch size", type=int, default=32)
+    parser.add_argument("--epochs", help="number of epochs", type=int, default=100)
+    parser.add_argument("--batch_size", help="batch size", type=int, default=64)
     parser.add_argument("--win_len", help="window length", type=int, default=24)
     parser.add_argument("--kernel_width", help="kernel width", type=int, default=4)
-    parser.add_argument("--hidden_size", help="hidden size", type=int, default=32)
+    parser.add_argument("--hidden_size", help="hidden size", type=int, default=64)
     parser.add_argument("--lr", help="learning rate", type=float, default=1e-4)
-    parser.add_argument("--feature_set", help="which feature subset to use (1~4)", type=int, default=1)
+    parser.add_argument("--feature_set", help="which feature subset to use (1~4)", type=int, default=4)
     parser.add_argument("--target_gas", help="gas for training", type=str, default='CO')
     args = parser.parse_args()
     
@@ -46,7 +46,7 @@ if __name__ == '__main__':
     # set random seed for reproducibility
     setSeed(0)
 
-    # store the data to folder
+    # process the raw data and store the processed to folder
     if args.store_data == True:
         storeData()
 
@@ -64,7 +64,7 @@ if __name__ == '__main__':
     elif feature_subset == 3:
         columns = ['REF-AMB_TEMP', 'REF-RH', f'SPEC-{target_gas}', f'SGX-{target_gas}', f'REF-{target_gas}']
     elif feature_subset == 4:
-        columns =  ['REF-AMB_TEMP', 'SGX-SO2', 'SPEC-CO', 'SPEC-O3', 'SGX-CO'] + [f'REF-{target_gas}']
+        columns =  ['REF-AMB_TEMP', 'SGX-CO', 'SGX-SO2'] + [f'REF-{target_gas}']
     elif feature_subset == 5:
         columns = sfs(data = data,
                         win_len = win_len,
@@ -76,6 +76,7 @@ if __name__ == '__main__':
                         lr = lr)
         columns += [f'REF-{target_gas}']
 
+    # Missing value and outlier removal
     data.dropna(subset=columns, inplace=True)
     data = data.abs()
 
@@ -84,15 +85,15 @@ if __name__ == '__main__':
     print('The total valid samples:', len(dates))
 
     # Keep the dates ealier than 2023-05-31 23:00:00
-    dates = dates[dates <= pd.to_datetime('2023-05-31 23:00:00')]
+    dates = dates[dates <= pd.to_datetime('2023-06-27 23:00:00')]
 
-    split_date_1 = pd.to_datetime('2023-03-31 23:00:00')
-    split_date_2 = pd.to_datetime('2023-04-30 23:00:00')
+    split_date_1 = pd.to_datetime('2023-04-30 23:00:00')
+    split_date_2 = pd.to_datetime('2023-05-31 23:00:00')
 
     train = dates[dates <= split_date_1]
     val = dates[(dates > split_date_1) & (dates <= split_date_2)]
     test = dates[dates > split_date_2]
-    print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
+    # print('Train size: {:d}, Validation size: {:d}, Test size: {:d}'.format(len(train), len(val), len(test)))
 
     # prepare data
     train_data = data.loc[train, columns]
@@ -108,9 +109,10 @@ if __name__ == '__main__':
     # print(train_data.shape, val_data.shape, test_data.shape)
 
     # create sequences
-    X_train, y_train, train = create_sequences(train_data, win_len, train, use_consecutive = False)
-    X_val, y_val, val = create_sequences(val_data, win_len, val, use_consecutive = False)
-    X_test, y_test, test = create_sequences(test_data, win_len, test, use_consecutive = False)
+    use_consecutive = False
+    X_train, y_train, train = create_sequences(train_data, win_len, train, use_consecutive = use_consecutive)
+    X_val, y_val, val = create_sequences(val_data, win_len, val, use_consecutive = use_consecutive)
+    X_test, y_test, test = create_sequences(test_data, win_len, test, use_consecutive = use_consecutive)
     # print(X_train.shape, y_train.shape, X_val.shape, y_val.shape, X_test.shape, y_test.shape)
 
     #  checking device
@@ -129,7 +131,7 @@ if __name__ == '__main__':
     #  training
     if args.train == True:
         
-        training(model, X_train, y_train, X_val, y_val, num_epochs, batch_size, optimizer, criterion, device)
+        training(model, X_train, y_train, X_val, y_val, num_epochs, batch_size, optimizer, criterion_decoder=None, criterion_regression=criterion, device=device)
         
     # Testing
     if args.test == True:

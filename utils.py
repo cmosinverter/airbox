@@ -204,7 +204,8 @@ def create_sequences(data, window_len, dates, use_consecutive=False):
             xs.append(x)
             ys.append(y)
             new_dates.append(dates[i+window_len-1])
-    
+
+
     return torch.unsqueeze(torch.tensor(np.stack(xs), dtype=torch.float32), dim=1), torch.tensor(np.stack(ys), dtype=torch.float32), new_dates
 
 def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, target_gas):
@@ -212,7 +213,7 @@ def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, ta
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     criterion = nn.MSELoss()
     # Prepare the data
-    features = list(data.columns[6:])
+    features = ['REF-AMB_TEMP', 'REF-RH', 'SGX-CO', 'SGX-SO2', 'SPEC-O3', 'SPEC-NO2']
 
     # Create a set to store selected features
     selected_features = set(range(len(features)))
@@ -267,7 +268,7 @@ def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, ta
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
             # Train the model
-            training(model, X_train, y_train, X_val, y_val, num_epochs=num_epochs, batch_size=batch_size, optimizer=optimizer, criterion=criterion, device=device)
+            training(model, X_train, y_train, X_val, y_val, num_epochs=num_epochs, batch_size=batch_size, optimizer=optimizer, criterion_decoder=None, criterion_regression=criterion, device=device)
 
             # Make predictions & score
             y_val_cal = model(X_val.to(device))
@@ -283,3 +284,11 @@ def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, ta
     print('The selected features: ', [features[idx] for idx in selected_features])
     print('The removed sequence: ', remove_sequence)
     return [features[idx] for idx in selected_features]
+
+def replace_outlier(data, subset=[]):
+    if subset == []:
+        subset = data.columns
+    for col in subset:
+        upper_quantile = data[col].quantile(0.99)
+        data[col] = data[col].apply(lambda x: np.nan if x > upper_quantile else x)
+    return data
