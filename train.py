@@ -24,7 +24,6 @@ def training(model, X_train, y_train, X_val, y_val, num_epochs, batch_size, opti
 
             outputs = model(batch_X)
             loss = criterion(outputs, batch_y)
-
             # backward pass and optimization
             loss.backward()
             optimizer.step()

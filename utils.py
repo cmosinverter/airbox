@@ -206,9 +206,9 @@ def create_sequences(data, window_len, dates, use_consecutive=False):
             new_dates.append(dates[i+window_len-1])
 
 
-    return torch.unsqueeze(torch.tensor(np.stack(xs), dtype=torch.float32), dim=1), torch.tensor(np.stack(ys), dtype=torch.float32), new_dates
+    return torch.tensor(np.stack(xs), dtype=torch.float32).permute(0, 2, 1), torch.tensor(np.stack(ys), dtype=torch.float32), new_dates
 
-def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, target_gas):
+def sfs(data, win_len, hidden_size, num_epochs, batch_size, lr, target_gas):
 
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     criterion = nn.MSELoss()
@@ -239,13 +239,12 @@ def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, ta
             dates = tmp_data.index
 
             # Keep the dates ealier than 2023-05-31 23:00:00
-            dates = dates[dates <= pd.to_datetime('2023-05-31 23:00:00')]
+            dates = dates[dates <= pd.to_datetime('2023-06-27 23:00:00')]
 
-            split_date_1 = pd.to_datetime('2023-03-31 23:00:00')
-            split_date_2 = pd.to_datetime('2023-04-30 23:00:00')
-
-            train = dates[dates <= split_date_1]
-            val = dates[(dates > split_date_1) & (dates <= split_date_2)]
+            batches = np.array_split(dates, 8)
+            train = batches[0]
+            val = batches[6]
+            
 
             train_data = tmp_data.loc[train, [features[idx] for idx in feature_subset_idx] + [f'REF-{target_gas}']]
             val_data = tmp_data.loc[val, [features[idx] for idx in feature_subset_idx] + [f'REF-{target_gas}']]
@@ -264,11 +263,11 @@ def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, ta
             input_features = X_train.shape[2]
 
             # Create a new model
-            model = CNN_GRU(kernel_width=kernel_width, input_features=input_features, hidden_size=hidden_size).to(device)
+            model = GRU(input_features=input_features, hidden_size=hidden_size).to(device)
             optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
             # Train the model
-            training(model, X_train, y_train, X_val, y_val, num_epochs=num_epochs, batch_size=batch_size, optimizer=optimizer, criterion_decoder=None, criterion_regression=criterion, device=device)
+            training(model, X_train, y_train, X_val, y_val, num_epochs=num_epochs, batch_size=batch_size, optimizer=optimizer, criterion=criterion, device=device)
 
             # Make predictions & score
             y_val_cal = model(X_val.to(device))
@@ -284,11 +283,3 @@ def sfs(data, win_len, kernel_width, hidden_size, num_epochs, batch_size, lr, ta
     print('The selected features: ', [features[idx] for idx in selected_features])
     print('The removed sequence: ', remove_sequence)
     return [features[idx] for idx in selected_features]
-
-def replace_outlier(data, subset=[]):
-    if subset == []:
-        subset = data.columns
-    for col in subset:
-        upper_quantile = data[col].quantile(0.99)
-        data[col] = data[col].apply(lambda x: np.nan if x > upper_quantile else x)
-    return data

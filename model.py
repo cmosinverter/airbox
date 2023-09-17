@@ -1,131 +1,146 @@
+import torch    
 import torch.nn as nn
-import torch
-import torch.optim as optim
-import math
-from torch.autograd import Function
 
-class GRU(nn.Module):
-    def __init__(self, input_features, hidden_size):
-        super(GRU, self).__init__()
+class MovingAvg(nn.Module):
+    """
+    Moving average block to highlight the trend of time series
+    """
+    def __init__(self, kernel_size, stride):
+        super(MovingAvg, self).__init__()
+        self.kernel_size = kernel_size
+        self.avg = nn.AvgPool1d(kernel_size=kernel_size, stride=stride, padding=0)
 
-        self.gru1 = nn.GRU(input_size=input_features, hidden_size=hidden_size, batch_first=True)
-        self.fc1 = nn.Linear(hidden_size, 1)
-
-        
     def forward(self, x):
-        out = x.permute(0, 3, 1, 2).reshape(x.size(0), x.size(3), -1)
-        out, _ = self.gru1(out)
-        out = self.fc1(out[:, -1, :])
-
-        return out
-
-
-class Simple_CNN_GRU(nn.Module):
-    def __init__(self, kernel_width, input_features, hidden_size, conv_out_channels=32):
-        super(Simple_CNN_GRU, self).__init__()
-
-        self.kernel_width = kernel_width
-        self.conv_out_channels = conv_out_channels
-        self.conv0 = nn.Conv2d(in_channels=1, out_channels=conv_out_channels, kernel_size=(input_features, kernel_width))
-        self.gru0 = nn.GRU(input_size=conv_out_channels, hidden_size=hidden_size, batch_first=True)
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=conv_out_channels, kernel_size=(input_features, kernel_width))
-        self.gru1 = nn.GRU(input_size=conv_out_channels, hidden_size=hidden_size, batch_first=True)
-
-        self.fc1 = nn.Linear(hidden_size, 1)
-
-        
-    def forward(self, x1):
-        out = self.conv1(x1)
-        out = out.permute(0, 3, 1, 2).reshape(out.size(0), out.size(3), -1)
-        out, _ = self.gru1(out)
-        out = self.fc1(out[:, -1, :])
-
-        return out
+        # padding on the both ends of time series
+        front = x[:, 0:1, :].repeat(1, (self.kernel_size - 1) // 2 , 1)
+        end = x[:, -1:, :].repeat(1, (self.kernel_size - 1) // 2 , 1)
+        x = torch.cat([front, x, end], dim=1)
+        x = self.avg(x.permute(0, 2, 1))
+        x = x.permute(0, 2, 1)
+        return x
 
 
+class SeriesDecomposition(nn.Module):
+    """
+    Series decomposition block
+    """
+    def __init__(self, kernel_size):
+        super(SeriesDecomposition, self).__init__()
+        self.moving_avg = MovingAvg(kernel_size, stride=1)
 
-class CNN_GRU(nn.Module):
-    def __init__(self, kernel_width, input_features, hidden_size, conv_out_channels=32):
-        super(CNN_GRU, self).__init__()
-
-        self.kernel_width = kernel_width
-        self.conv_out_channels = conv_out_channels
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=conv_out_channels, kernel_size=(input_features, kernel_width))
-        self.gru1 = nn.GRU(input_size=conv_out_channels+1, hidden_size=hidden_size, batch_first=True, num_layers=1)
-        self.fc1 = nn.Linear(hidden_size, 64)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(64, 1)
-
-
-        
     def forward(self, x):
-        x_t = x[:, :, 0, self.kernel_width - 1:].unsqueeze(1)
-        out = self.conv1(x)
-        out = torch.cat((out, x_t), dim=1)
-        out = out.permute(0, 3, 1, 2).reshape(out.size(0), out.size(3), -1)
-        out, _ = self.gru1(out)
-        out = self.fc1(out[:, -1, :])
-        out = self.relu1(out)
-        out = self.fc2(out)
-        return out
+        moving_mean = self.moving_avg(x)
+        res = x - moving_mean
+        return res, moving_mean
     
 
-class GradientReversalFunction(Function):
-    @staticmethod
-    def forward(ctx, x, alpha):
-        ctx.alpha = alpha
-        return x.view_as(x)
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        return grad_output.neg() * ctx.alpha, None
-
-def grad_reverse(x, alpha):
-    return GradientReversalFunction.apply(x, alpha)
-
-class DAN(nn.Module):
-    def __init__(self, kernel_width, input_features, hidden_size, conv_out_channels=32):
-        super(DAN, self).__init__()
-
-        # Feature Extraction
-        self.kernel_width = kernel_width
-        self.conv_out_channels = conv_out_channels
-        self.conv1 = nn.Conv2d(in_channels=1, out_channels=conv_out_channels, kernel_size=(input_features, kernel_width))
+class GRU(nn.Module):
+    def __init__(self, input_features, hidden_size, win_len):
+        super(GRU, self).__init__()
+        
+        self.long = win_len
+        self.short = win_len // 4
+        
+        self.gru1 = nn.GRU(input_size=input_features, hidden_size=hidden_size, batch_first=True, num_layers=2)
+        self.gru2 = nn.GRU(input_size=input_features, hidden_size=hidden_size, batch_first=True, num_layers=2)
+        
+        self.fc1 = nn.Linear(hidden_size*2, hidden_size)
         self.relu1 = nn.ReLU()
-        self.gru1 = nn.GRU(input_size=conv_out_channels, hidden_size=hidden_size, batch_first=True, num_layers=1)
-        
-        # Regression
-        self.fc1 = nn.Linear(hidden_size, 128)
+        self.fc2 = nn.Linear(hidden_size, hidden_size//2)
         self.relu2 = nn.ReLU()
-        self.fc2 = nn.Linear(128, 1)
+        self.fc3 = nn.Linear(hidden_size//2, 1)
         
-        # Domain Classification 
-        self.fc3 = nn.Linear(hidden_size, 64)
-        self.relu3 = nn.ReLU()
-        self.fc4 = nn.Linear(64, 1)  # Renamed for clarity
-        self.sigmoid = nn.Sigmoid()
-
+        self.dropout = nn.Dropout(0.1)
         
-    def forward(self, x, alpha):
-        # Feature Extraction
-        out = self.conv1(x)
+    def forward(self, x):
+        xl = x
+        xs = x[:, -self.short:, :]
+        
+        outl, _ = self.gru1(xl)
+        outs, _ = self.gru2(xs)
+        
+        out = self.fc1(torch.cat((outl[:, -1, :], outs[:, -1, :]), dim=1))
+        
+        out = self.dropout(out)
         out = self.relu1(out)
-        out = out.permute(0, 3, 1, 2).reshape(out.size(0), out.size(3), -1)
-        out, _ = self.gru1(out)
-        encoded = out[:, -1, :]
+        out = self.fc2(out)
+        out = self.dropout(out)
+        out = self.relu2(out)
+        out = self.fc3(out)
+        return out
+
+
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, d_model, max_sequence_length):
+        super(PositionalEncoding, self).__init__()
+        self.max_sequence_length = max_sequence_length
+        self.d_model = d_model
+
+    def forward(self):
+        even_i = torch.arange(0, self.d_model, 2).float()
+        denominator = torch.pow(10000, even_i/self.d_model)
+        position = torch.arange(self.max_sequence_length).reshape(self.max_sequence_length, 1)
+        even_PE = torch.sin(position / denominator)
+        odd_PE = torch.cos(position / denominator)
+        stacked = torch.stack([even_PE, odd_PE], dim=2)
+        PE = torch.flatten(stacked, start_dim=1, end_dim=2)
+        return PE
+
+class SelfAttn(nn.Module):
+    def __init__(self, d_model, nhead):
+        super(SelfAttn, self).__init__()
         
-        # Domain Adversarial Training: Gradient Reversal
-        reversed_encoded = grad_reverse(encoded, alpha)
+        # Multi-Head Self-Attention Layer
+        self.self_attention = nn.MultiheadAttention(d_model, nhead)
         
-        # Regression
-        reg = self.fc1(encoded)
-        reg = self.relu2(reg)
-        reg = self.fc2(reg)
+        # Feed-Forward Layer
+        self.feed_forward = nn.Sequential(
+            nn.Linear(d_model, 4 * d_model),
+            nn.ReLU(),
+            nn.Linear(4 * d_model, d_model)
+        )
         
-        # Domain Classification 
-        domain = self.fc3(reversed_encoded)  # Use reversed_encoded
-        domain = self.relu3(domain)
-        domain = self.fc4(domain)  # Use fc4 instead of fc3
-        domain = self.sigmoid(domain)
+        # Layer Normalization
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
         
-        return reg, domain
+        # Dropout
+        self.dropout = nn.Dropout(0.1)
+        
+        
+        
+    
+    def forward(self, x):
+        # Self-Attention
+        attn_output, _ = self.self_attention(x, x, x)
+        x = x + self.dropout(attn_output)
+        x = self.norm1(x)
+        
+        # Feed-Forward
+        ff_output = self.feed_forward(x)
+        x = x + self.dropout(ff_output)
+        x = self.norm2(x)
+        
+        return x
+
+
+
+
+class Encoder(nn.Module):
+    def __init__(self, d_model, nhead, num_layers):
+        super(Encoder, self).__init__()
+        
+        self.positional_encoding = PositionalEncoding(d_model, max_sequence_length=24)
+        self.layers = nn.ModuleList([SelfAttn(d_model, nhead) for _ in range(num_layers)])
+        self.reg_head = nn.Linear(d_model, 1)
+        
+    def forward(self, x):
+        pe = self.positional_encoding.forward()
+        x = x + pe.unsqueeze(0).to(x.device)
+        
+        for layer in self.layers:
+            x = layer(x)
+        x = self.reg_head(x)
+        return x[:, -1, :]
+
